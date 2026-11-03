@@ -1,0 +1,1041 @@
+'use client';
+
+import React, { useState } from 'react';
+import { 
+  Building2, Search, MapPin, ShieldCheck, 
+  User, LogOut, Heart, Bookmark, CheckCircle2, AlertCircle, 
+  Plus, UserPlus, ChevronRight, Filter, IndianRupee, X
+} from 'lucide-react';
+
+// --- TYPES ---
+type Role = 'tenant' | 'landlord';
+
+interface TenantInfo {
+  name: string;
+  mobile: string;
+  aadhaar: string; // Redacted display format
+  address: string;
+  monthlyRent: number;
+  securityDeposit: number;
+  dueDate: string;
+}
+
+interface Room {
+  id: string;
+  roomNumber: string;
+  type: 'Single' | 'Double' | 'Triple Sharing';
+  status: 'Empty' | 'Full';
+  tenant?: TenantInfo;
+}
+
+interface Property {
+  id: string;
+  title: string;
+  city: string;
+  locality: string;
+  price: number;
+  roomTypes: string[];
+  amenities: string[];
+  image: string;
+  verified: boolean;
+  ownerName: string;
+  ownerContact: string;
+  description: string;
+  rooms: Room[];
+}
+
+// --- MOCK DATA ---
+const INITIAL_PROPERTIES: Property[] = [
+  {
+    id: 'prop-1',
+    title: 'Sai Comfort Luxury PG for Gents',
+    city: 'Bangalore',
+    locality: 'Koramangala',
+    price: 9500,
+    roomTypes: ['Single', 'Double Sharing'],
+    amenities: ['Wi-Fi', 'AC', 'Food included', 'Power Backup'],
+    image: 'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&q=80&w=800',
+    verified: true,
+    ownerName: 'Ramesh Kumar',
+    ownerContact: '+91 98765 43210',
+    description: 'Fully furnished PG with high-speed Wi-Fi, 3 times home-cooked meals, and 24/7 power backup located near tech parks.',
+    rooms: [
+      { id: 'r101', roomNumber: '101', type: 'Single', status: 'Empty' },
+      { id: 'r102', roomNumber: '102', type: 'Double Sharing', status: 'Full', tenant: {
+        name: 'Amit Sharma',
+        mobile: '9811122233',
+        aadhaar: 'XXXX-XXXX-1234',
+        address: 'MG Road, Pune',
+        monthlyRent: 9500,
+        securityDeposit: 15000,
+        dueDate: '5th of every month'
+      }},
+      { id: 'r103', roomNumber: '103', type: 'Double Sharing', status: 'Empty' }
+    ]
+  },
+  {
+    id: 'prop-2',
+    title: 'GreenView Ladies Executive Living',
+    city: 'Hyderabad',
+    locality: 'Gachibowli',
+    price: 8000,
+    roomTypes: ['Double Sharing', 'Triple Sharing'],
+    amenities: ['Wi-Fi', 'Food included', 'Power Backup'],
+    image: 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&q=80&w=800',
+    verified: true,
+    ownerName: 'Sunita Reddy',
+    ownerContact: '+91 91234 56789',
+    description: 'Secure and peaceful accommodation exclusively for working professionals and students with biometric security.',
+    rooms: [
+      { id: 'r201', roomNumber: '201', type: 'Double Sharing', status: 'Empty' },
+      { id: 'r202', roomNumber: '202', type: 'Triple Sharing', status: 'Empty' }
+    ]
+  },
+  {
+    id: 'prop-3',
+    title: 'UrbanNest Co-living Studio Space',
+    city: 'Pune',
+    locality: 'Hinjewadi',
+    price: 12000,
+    roomTypes: ['Single'],
+    amenities: ['Wi-Fi', 'AC', 'Power Backup'],
+    image: 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&q=80&w=800',
+    verified: false,
+    ownerName: 'Vikram Deshmukh',
+    ownerContact: '+91 99887 76655',
+    description: 'Independent studio rooms designed for absolute privacy and modern lifestyle.',
+    rooms: [
+      { id: 'r301', roomNumber: '301', type: 'Single', status: 'Empty' }
+    ]
+  }
+];
+
+export default function Home() {
+  const [activeTab, setActiveTab] = useState<'home' | 'discovery' | 'dashboard'>('home');
+  const [user, setUser] = useState<{ mobile: string; role: Role } | null>(null);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [mobileInput, setMobileInput] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpInput, setOtpInput] = useState('');
+  const [selectedRole, setSelectedRole] = useState<Role>('tenant');
+  const [mockOtpCode, setMockOtpCode] = useState('');
+
+  // Discovery Filters State
+  const [searchCity, setSearchCity] = useState('');
+  const [searchLocality, setSearchLocality] = useState('');
+  const [filterBudget, setFilterBudget] = useState<number>(20000);
+  const [filterOccupancy, setFilterOccupancy] = useState<string>('All');
+  const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
+
+  // Properties State
+  const [properties, setProperties] = useState<Property[]>(INITIAL_PROPERTIES);
+
+  // Tenant Interactive State
+  const [shortlisted, setShortlisted] = useState<string[]>(['prop-1']);
+  const [bookingRequests, setBookingRequests] = useState<string[]>(['prop-1']);
+
+  // Landlord Onboarding Modal State
+  const [onboardingModal, setOnboardingModal] = useState<{ propertyId: string; roomId: string } | null>(null);
+  const [tenantForm, setTenantForm] = useState<TenantInfo>({
+    name: '',
+    mobile: '',
+    aadhaar: '',
+    address: '',
+    monthlyRent: 8000,
+    securityDeposit: 10000,
+    dueDate: '1st of every month'
+  });
+  const [aadhaarError, setAadhaarError] = useState('');
+
+  const handleSendOtp = () => {
+    if (mobileInput.length < 10) {
+      alert('Please enter a valid 10-digit mobile number');
+      return;
+    }
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    setMockOtpCode(code);
+    setOtpSent(true);
+  };
+
+  const handleVerifyOtp = () => {
+    if (otpInput === mockOtpCode || otpInput === '123456') {
+      setUser({ mobile: mobileInput, role: selectedRole });
+      setAuthModalOpen(false);
+      setOtpSent(false);
+      setMobileInput('');
+      setOtpInput('');
+      setActiveTab('dashboard');
+    } else {
+      alert('Invalid OTP. Use mock code shown on screen or 123456.');
+    }
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    setActiveTab('home');
+  };
+
+  const validateAadhaar = (val: string) => {
+    const clean = val.replace(/\s+/g, '');
+    if (/^\d{12}$/.test(clean)) {
+      setAadhaarError('');
+      return true;
+    } else {
+      setAadhaarError('Aadhaar must be exactly 12 digits.');
+      return false;
+    }
+  };
+
+  const handleOnboardSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateAadhaar(tenantForm.aadhaar)) return;
+    if (!onboardingModal) return;
+
+    setProperties(prev => prev.map(prop => {
+      if (prop.id === onboardingModal.propertyId) {
+        return {
+          ...prop,
+          rooms: prop.rooms.map(room => {
+            if (room.id === onboardingModal.roomId) {
+              return {
+                ...room,
+                status: 'Full',
+                tenant: { ...tenantForm, aadhaar: `XXXX-XXXX-${tenantForm.aadhaar.slice(-4)}` }
+              };
+            }
+            return room;
+          })
+        };
+      }
+      return prop;
+    }));
+
+    setOnboardingModal(null);
+    setTenantForm({
+      name: '',
+      mobile: '',
+      aadhaar: '',
+      address: '',
+      monthlyRent: 8000,
+      securityDeposit: 10000,
+      dueDate: '1st of every month'
+    });
+  };
+
+  const handleVacateRoom = (propId: string, roomId: string) => {
+    if (confirm('Are you sure you want to vacate this room? Previous tenant history will be archived.')) {
+      setProperties(prev => prev.map(prop => {
+        if (prop.id === propId) {
+          return {
+            ...prop,
+            rooms: prop.rooms.map(room => {
+              if (room.id === roomId) {
+                return { ...room, status: 'Empty', tenant: undefined };
+              }
+              return room;
+            })
+          };
+        }
+        return prop;
+      }));
+    }
+  };
+
+  const filteredProperties = properties.filter(prop => {
+    const matchesCity = searchCity ? prop.city.toLowerCase().includes(searchCity.toLowerCase()) : true;
+    const matchesLocality = searchLocality ? prop.locality.toLowerCase().includes(searchLocality.toLowerCase()) : true;
+    const matchesBudget = prop.price <= filterBudget;
+    const matchesOccupancy = filterOccupancy === 'All' ? true : prop.roomTypes.includes(filterOccupancy);
+    const matchesAmenities = selectedAmenities.length === 0 || selectedAmenities.every(a => prop.amenities.includes(a));
+    return matchesCity && matchesLocality && matchesBudget && matchesOccupancy && matchesAmenities;
+  });
+
+  return (
+    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800">
+      
+      {/* NAVIGATION BAR */}
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between">
+          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setActiveTab('home')}>
+            <div className="bg-indigo-600 text-white p-2.5 rounded-xl shadow-md shadow-indigo-200">
+              <Building2 className="w-6 h-6" />
+            </div>
+            <div>
+              <span className="text-xl font-extrabold tracking-tight text-slate-900">Nest<span className="text-indigo-600">Finder</span></span>
+              <span className="block text-[10px] font-medium tracking-wider text-slate-400 uppercase">Direct Owner Rentals</span>
+            </div>
+          </div>
+
+          <nav className="hidden md:flex items-center space-x-8 text-sm font-medium">
+            <button 
+              onClick={() => setActiveTab('home')} 
+              className={`transition-colors pb-1 border-b-2 ${activeTab === 'home' ? 'border-indigo-600 text-indigo-600 font-semibold' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
+            >
+              Home
+            </button>
+            <button 
+              onClick={() => setActiveTab('discovery')} 
+              className={`transition-colors pb-1 border-b-2 ${activeTab === 'discovery' ? 'border-indigo-600 text-indigo-600 font-semibold' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
+            >
+              Discovery & Search
+            </button>
+            {user && (
+              <button 
+                onClick={() => setActiveTab('dashboard')} 
+                className={`transition-colors pb-1 border-b-2 ${activeTab === 'dashboard' ? 'border-indigo-600 text-indigo-600 font-semibold' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
+              >
+                {user.role === 'tenant' ? 'Tenant Dashboard' : 'Landlord Portal'}
+              </button>
+            )}
+          </nav>
+
+          <div className="flex items-center space-x-4">
+            {user ? (
+              <div className="flex items-center space-x-3 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200">
+                <div className="bg-indigo-600 text-white w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold">
+                  {user.role === 'tenant' ? 'T' : 'L'}
+                </div>
+                <div className="text-xs">
+                  <p className="font-bold text-slate-800">{user.mobile}</p>
+                  <p className="text-slate-500 capitalize">{user.role}</p>
+                </div>
+                <button onClick={handleLogout} className="text-slate-400 hover:text-rose-600 pl-2 transition-colors">
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setAuthModalOpen(true)}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-semibold shadow-md shadow-indigo-200 transition-all transform hover:-translate-y-0.5"
+              >
+                Sign In / Sign Up
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* MAIN CONTENT ROUTING */}
+      <main className="flex-grow">
+
+        {/* A. HOME PAGE */}
+        {activeTab === 'home' && (
+          <div>
+            <section className="relative bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white py-24 px-4 sm:px-6 lg:px-8 overflow-hidden">
+              <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#6366f1_1px,transparent_1px)] [background-size:16px_16px]"></div>
+              <div className="max-w-4xl mx-auto text-center relative z-10">
+                <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-semibold mb-6 border border-indigo-500/30">
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Zero Brokerage • Direct Owner Connect</span>
+                </span>
+                <h1 className="text-4xl sm:text-6xl font-black tracking-tight leading-tight mb-6">
+                  Find Your Ideal Living Space or List Your Property <span className="text-indigo-400">Hassle-Free</span>
+                </h1>
+                <p className="text-lg text-slate-300 mb-10 max-w-2xl mx-auto">
+                  Discover verified PGs, hostels, and rental apartments across top Indian cities with direct owner contact and transparent pricing.
+                </p>
+
+                <div className="bg-white p-3 rounded-2xl shadow-2xl flex flex-col md:flex-row gap-3 max-w-3xl mx-auto text-slate-800">
+                  <div className="flex-1 flex items-center px-3 py-2 bg-slate-50 rounded-xl border border-slate-200">
+                    <MapPin className="w-5 h-5 text-indigo-600 mr-2 flex-shrink-0" />
+                    <input
+                      type="text"
+                      placeholder="City (e.g. Bangalore, Pune)"
+                      value={searchCity}
+                      onChange={(e) => setSearchCity(e.target.value)}
+                      className="w-full bg-transparent focus:outline-none text-sm font-medium"
+                    />
+                  </div>
+                  <div className="flex-1 flex items-center px-3 py-2 bg-slate-50 rounded-xl border border-slate-200">
+                    <Search className="w-5 h-5 text-indigo-600 mr-2 flex-shrink-0" />
+                    <input
+                      type="text"
+                      placeholder="Locality (e.g. Koramangala)"
+                      value={searchLocality}
+                      onChange={(e) => setSearchLocality(e.target.value)}
+                      className="w-full bg-transparent focus:outline-none text-sm font-medium"
+                    />
+                  </div>
+                  <button
+                    onClick={() => setActiveTab('discovery')}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl font-semibold text-sm transition-all shadow-md shadow-indigo-300 flex items-center justify-center space-x-2"
+                  >
+                    <span>Search Now</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section className="py-16 bg-white border-b border-slate-200">
+              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div className="p-6 rounded-2xl bg-indigo-50/50 border border-indigo-100 flex items-start space-x-4">
+                  <div className="bg-indigo-600 text-white p-3 rounded-xl">
+                    <ShieldCheck className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900 mb-1">100% Verified Owners</h3>
+                    <p className="text-sm text-slate-600">Connect directly with verified landlords and property managers with zero brokerage fees.</p>
+                  </div>
+                </div>
+                <div className="p-6 rounded-2xl bg-indigo-50/50 border border-indigo-100 flex items-start space-x-4">
+                  <div className="bg-indigo-600 text-white p-3 rounded-xl">
+                    <User className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900 mb-1">OTP Secure Onboarding</h3>
+                    <p className="text-sm text-slate-600">Seamless mobile OTP authentication and structured digital tenant check-in management.</p>
+                  </div>
+                </div>
+                <div className="p-6 rounded-2xl bg-indigo-50/50 border border-indigo-100 flex items-start space-x-4">
+                  <div className="bg-indigo-600 text-white p-3 rounded-xl">
+                    <IndianRupee className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900 mb-1">Transparent Pricing</h3>
+                    <p className="text-sm text-slate-600">Clear monthly rent, security deposit terms, and due date tracking with zero hidden charges.</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="py-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="flex justify-between items-end mb-10">
+                <div>
+                  <span className="text-indigo-600 font-semibold text-xs uppercase tracking-wider">Handpicked Spaces</span>
+                  <h2 className="text-3xl font-black text-slate-900 mt-1">Featured Properties</h2>
+                </div>
+                <button
+                  onClick={() => setActiveTab('discovery')}
+                  className="text-indigo-600 hover:text-indigo-700 font-bold text-sm flex items-center space-x-1"
+                >
+                  <span>View All Properties</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                {properties.map(property => (
+                  <div key={property.id} className="bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-xl transition-all flex flex-col group">
+                    <div className="relative h-52 overflow-hidden">
+                      <img src={property.image} alt={property.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                      {property.verified && (
+                        <span className="absolute top-3 left-3 bg-emerald-600 text-white text-xs font-bold px-2.5 py-1 rounded-full shadow flex items-center space-x-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Verified Owner</span>
+                        </span>
+                      )}
+                      <span className="absolute bottom-3 right-3 bg-slate-900/80 backdrop-blur-md text-white text-xs font-bold px-3 py-1 rounded-full">
+                        ₹{property.price.toLocaleString('en-IN')} /mo onwards
+                      </span>
+                    </div>
+
+                    <div className="p-6 flex-1 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center text-slate-500 text-xs font-medium mb-1">
+                          <MapPin className="w-3.5 h-3.5 text-indigo-600 mr-1" />
+                          <span>{property.locality}, {property.city}</span>
+                        </div>
+                        <h3 className="text-lg font-bold text-slate-900 mb-2 group-hover:text-indigo-600 transition-colors">
+                          {property.title}
+                        </h3>
+                        <div className="flex flex-wrap gap-1.5 mb-4">
+                          {property.amenities.map((amenity, idx) => (
+                            <span key={idx} className="bg-slate-100 text-slate-600 text-[11px] font-medium px-2.5 py-1 rounded-md">
+                              {amenity}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                        <div>
+                          <p className="text-[11px] text-slate-400 uppercase font-semibold">Owner</p>
+                          <p className="text-xs font-bold text-slate-800">{property.ownerName}</p>
+                        </div>
+                        <button
+                          onClick={() => setActiveTab('discovery')}
+                          className="bg-indigo-50 hover:bg-indigo-600 text-indigo-600 hover:text-white px-4 py-2 rounded-xl text-xs font-bold transition-colors"
+                        >
+                          View Details
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* B. DISCOVERY SECTION */}
+        {activeTab === 'discovery' && (
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+            <div className="mb-8">
+              <h1 className="text-3xl font-black text-slate-900">Explore Rental Accommodations</h1>
+              <p className="text-slate-500 text-sm mt-1">Filter by budget, occupancy type, and amenities to find your perfect fit.</p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-fit space-y-6">
+                <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                  <h3 className="font-bold text-slate-900 flex items-center space-x-2">
+                    <Filter className="w-4 h-4 text-indigo-600" />
+                    <span>Filters</span>
+                  </h3>
+                  <button 
+                    onClick={() => {
+                      setSearchCity('');
+                      setSearchLocality('');
+                      setFilterBudget(20000);
+                      setFilterOccupancy('All');
+                      setSelectedAmenities([]);
+                    }}
+                    className="text-xs text-indigo-600 font-bold hover:underline"
+                  >
+                    Reset All
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Location</label>
+                  <input
+                    type="text"
+                    placeholder="Search City..."
+                    value={searchCity}
+                    onChange={(e) => setSearchCity(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm mb-2 focus:outline-none focus:border-indigo-500"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Search Locality..."
+                    value={searchLocality}
+                    onChange={(e) => setSearchLocality(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-xs font-bold text-slate-700 mb-2">
+                    <span className="uppercase">Max Budget</span>
+                    <span className="text-indigo-600">₹{filterBudget.toLocaleString('en-IN')}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="5000"
+                    max="30000"
+                    step="1000"
+                    value={filterBudget}
+                    onChange={(e) => setFilterBudget(Number(e.target.value))}
+                    className="w-full accent-indigo-600 cursor-pointer"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Occupancy Type</label>
+                  <select
+                    value={filterOccupancy}
+                    onChange={(e) => setFilterOccupancy(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 font-medium"
+                  >
+                    <option value="All">All Types</option>
+                    <option value="Single">Single Sharing</option>
+                    <option value="Double Sharing">Double Sharing</option>
+                    <option value="Triple Sharing">Triple Sharing</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Amenities</label>
+                  <div className="space-y-2">
+                    {['Wi-Fi', 'AC', 'Food included', 'Power Backup'].map((amenity) => (
+                      <label key={amenity} className="flex items-center space-x-2.5 text-sm text-slate-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedAmenities.includes(amenity)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedAmenities([...selectedAmenities, amenity]);
+                            } else {
+                              setSelectedAmenities(selectedAmenities.filter(a => a !== amenity));
+                            }
+                          }}
+                          className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                        />
+                        <span>{amenity}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="lg:col-span-3 space-y-6">
+                {filteredProperties.length === 0 ? (
+                  <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+                    <AlertCircle className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                    <h3 className="text-lg font-bold text-slate-800">No properties found</h3>
+                    <p className="text-sm text-slate-500 mt-1">Try adjusting your filters or search query.</p>
+                  </div>
+                ) : (
+                  filteredProperties.map(property => (
+                    <div key={property.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col md:flex-row">
+                      <div className="md:w-72 h-56 md:h-auto relative">
+                        <img src={property.image} alt={property.title} className="w-full h-full object-cover" />
+                        {property.verified && (
+                          <span className="absolute top-3 left-3 bg-emerald-600 text-white text-xs font-bold px-2 py-0.5 rounded-md flex items-center space-x-1">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>Verified</span>
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="p-6 flex-1 flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center text-slate-500 text-xs font-medium">
+                              <MapPin className="w-3.5 h-3.5 text-indigo-600 mr-1" />
+                              <span>{property.locality}, {property.city}</span>
+                            </div>
+                            <span className="text-lg font-black text-indigo-600">
+                              ₹{property.price.toLocaleString('en-IN')} <span className="text-xs font-normal text-slate-500">/mo</span>
+                            </span>
+                          </div>
+
+                          <h3 className="text-xl font-bold text-slate-900 mb-2">{property.title}</h3>
+                          <p className="text-sm text-slate-600 mb-4 line-clamp-2">{property.description}</p>
+
+                          <div className="flex flex-wrap gap-2 mb-4">
+                            {property.amenities.map((a, i) => (
+                              <span key={i} className="bg-slate-100 text-slate-700 text-xs font-medium px-3 py-1 rounded-lg">
+                                {a}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                          <div className="flex items-center space-x-3">
+                            <div className="bg-slate-100 p-2.5 rounded-full text-slate-700 font-bold text-xs">
+                              {property.ownerName.charAt(0)}
+                            </div>
+                            <div>
+                              <p className="text-[11px] text-slate-400 uppercase font-semibold">Direct Landlord</p>
+                              <p className="text-xs font-bold text-slate-800">{property.ownerName} • <span className="text-indigo-600">{property.ownerContact}</span></p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => {
+                                if (!shortlisted.includes(property.id)) {
+                                  setShortlisted([...shortlisted, property.id]);
+                                  alert('Property added to your Shortlisted list!');
+                                } else {
+                                  alert('Property is already in your shortlist.');
+                                }
+                              }}
+                              className="p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
+                              title="Shortlist Property"
+                            >
+                              <Heart className={`w-4 h-4 ${shortlisted.includes(property.id) ? 'fill-rose-500 text-rose-500' : ''}`} />
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (!user) {
+                                  setAuthModalOpen(true);
+                                  return;
+                                }
+                                if (!bookingRequests.includes(property.id)) {
+                                  setBookingRequests([...bookingRequests, property.id]);
+                                  alert('Booking inquiry sent successfully to the owner!');
+                                } else {
+                                  alert('Booking inquiry already active for this property.');
+                                }
+                              }}
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-200"
+                            >
+                              Contact Owner / Book
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* C & D. DASHBOARDS */}
+        {activeTab === 'dashboard' && user && (
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+            
+            {/* TENANT DASHBOARD */}
+            {user.role === 'tenant' && (
+              <div className="space-y-8">
+                <div>
+                  <h1 className="text-3xl font-black text-slate-900">Tenant Dashboard</h1>
+                  <p className="text-slate-500 text-sm mt-1">Manage your shortlisted spaces, active inquiries, and rental agreements.</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="text-xs font-bold text-slate-400 uppercase">Shortlisted Properties</span>
+                      <Heart className="w-5 h-5 text-rose-500" />
+                    </div>
+                    <p className="text-3xl font-black text-slate-900">{shortlisted.length}</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="text-xs font-bold text-slate-400 uppercase">Active Inquiries / Bookings</span>
+                      <Bookmark className="w-5 h-5 text-indigo-600" />
+                    </div>
+                    <p className="text-3xl font-black text-slate-900">{bookingRequests.length}</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="text-xs font-bold text-slate-400 uppercase">Rental Status</span>
+                      <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                    </div>
+                    <p className="text-lg font-bold text-emerald-600">Verified Tenant Profile</p>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+                  <h3 className="text-lg font-bold text-slate-900 mb-4">Your Shortlisted Properties</h3>
+                  {shortlisted.length === 0 ? (
+                    <p className="text-sm text-slate-500">No properties shortlisted yet.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {properties.filter(p => shortlisted.includes(p.id)).map(p => (
+                        <div key={p.id} className="p-4 rounded-xl border border-slate-200 flex items-center space-x-4">
+                          <img src={p.image} alt={p.title} className="w-20 h-20 rounded-lg object-cover" />
+                          <div className="flex-1">
+                            <h4 className="font-bold text-slate-900 text-sm">{p.title}</h4>
+                            <p className="text-xs text-slate-500">{p.locality}, {p.city}</p>
+                            <p className="text-xs font-bold text-indigo-600 mt-1">₹{p.price.toLocaleString('en-IN')} /mo</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* LANDLORD PORTAL & ROOM MANAGEMENT */}
+            {user.role === 'landlord' && (
+              <div className="space-y-8">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <h1 className="text-3xl font-black text-slate-900">Landlord Property & Room Management</h1>
+                    <p className="text-slate-500 text-sm mt-1">Monitor room occupancy status and onboard tenants securely.</p>
+                  </div>
+                  <button 
+                    onClick={() => alert('Add Property modal triggered.')}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-200 flex items-center space-x-2 w-fit"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add New Property</span>
+                  </button>
+                </div>
+
+                <div className="space-y-8">
+                  {properties.map(property => (
+                    <div key={property.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                      <div className="p-6 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex items-center space-x-4">
+                          <img src={property.image} alt={property.title} className="w-16 h-16 rounded-xl object-cover" />
+                          <div>
+                            <h3 className="text-lg font-bold text-slate-900">{property.title}</h3>
+                            <p className="text-xs text-slate-500">{property.locality}, {property.city} • ₹{property.price.toLocaleString('en-IN')} /mo</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-3 py-1.5 rounded-xl">
+                            {property.rooms.filter(r => r.status === 'Empty').length} Rooms Available
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="p-6">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Room Status Grid</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                          {property.rooms.map(room => (
+                            <div 
+                              key={room.id} 
+                              className={`p-5 rounded-2xl border transition-all ${room.status === 'Empty' ? 'bg-emerald-50/30 border-emerald-200' : 'bg-rose-50/30 border-rose-200'}`}
+                            >
+                              <div className="flex items-center justify-between mb-3">
+                                <span className="font-bold text-slate-900 text-sm">Room {room.roomNumber} ({room.type})</span>
+                                <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${room.status === 'Empty' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                  {room.status === 'Empty' ? 'Empty (Available)' : 'Full (Occupied)'}
+                                </span>
+                              </div>
+
+                              {room.status === 'Full' && room.tenant ? (
+                                <div className="space-y-2 mt-3 pt-3 border-t border-slate-200 text-xs">
+                                  <p className="font-bold text-slate-800">{room.tenant.name}</p>
+                                  <p className="text-slate-600">Ph: {room.tenant.mobile}</p>
+                                  <p className="text-slate-600">Aadhaar: {room.tenant.aadhaar}</p>
+                                  <p className="text-slate-600">Rent: ₹{room.tenant.monthlyRent}/mo (Due: {room.tenant.dueDate})</p>
+                                  <button
+                                    onClick={() => handleVacateRoom(property.id, room.id)}
+                                    className="mt-2 w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-1.5 rounded-lg transition-colors"
+                                  >
+                                    Vacate Room
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="mt-4">
+                                  <button
+                                    onClick={() => setOnboardingModal({ propertyId: property.id, roomId: room.id })}
+                                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl text-xs transition-all shadow-sm flex items-center justify-center space-x-1.5"
+                                  >
+                                    <UserPlus className="w-3.5 h-3.5" />
+                                    <span>Onboard Tenant</span>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+          </div>
+        )}
+
+      </main>
+
+      {/* TENANT ONBOARDING MODAL */}
+      {onboardingModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-8 shadow-2xl border border-slate-100 relative">
+            <button
+              onClick={() => setOnboardingModal(null)}
+              className="absolute top-6 right-6 text-slate-400 hover:text-slate-700"
+            >
+              <X className="w-6 h-6" />
+            </button>
+
+            <h3 className="text-2xl font-black text-slate-900 mb-1">Tenant Onboarding</h3>
+            <p className="text-sm text-slate-500 mb-6">Enter tenant details and rent agreement terms for room check-in.</p>
+
+            <form onSubmit={handleOnboardSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Rahul Verma"
+                  value={tenantForm.name}
+                  onChange={(e) => setTenantForm({ ...tenantForm, name: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Mobile Number</label>
+                  <input
+                    type="tel"
+                    required
+                    maxLength={10}
+                    placeholder="10-digit number"
+                    value={tenantForm.mobile}
+                    onChange={(e) => setTenantForm({ ...tenantForm, mobile: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Aadhaar Number</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="12-digit Aadhaar"
+                    value={tenantForm.aadhaar}
+                    onChange={(e) => {
+                      setTenantForm({ ...tenantForm, aadhaar: e.target.value });
+                      validateAadhaar(e.target.value);
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500"
+                  />
+                  {aadhaarError && <p className="text-[10px] text-rose-600 font-bold mt-1">{aadhaarError}</p>}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Permanent Address</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="City, State"
+                  value={tenantForm.address}
+                  onChange={(e) => setTenantForm({ ...tenantForm, address: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Monthly Rent (₹)</label>
+                  <input
+                    type="number"
+                    required
+                    value={tenantForm.monthlyRent}
+                    onChange={(e) => setTenantForm({ ...tenantForm, monthlyRent: Number(e.target.value) })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Deposit (₹)</label>
+                  <input
+                    type="number"
+                    required
+                    value={tenantForm.securityDeposit}
+                    onChange={(e) => setTenantForm({ ...tenantForm, securityDeposit: Number(e.target.value) })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Due Date</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. 5th of month"
+                    value={tenantForm.dueDate}
+                    onChange={(e) => setTenantForm({ ...tenantForm, dueDate: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4">
+                <button
+                  type="submit"
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-md shadow-indigo-200 transition-all text-sm"
+                >
+                  Save & Onboard Tenant
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* AUTH MODAL */}
+      {authModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-8 shadow-2xl border border-slate-100 relative">
+            <button
+              onClick={() => { setAuthModalOpen(false); setOtpSent(false); }}
+              className="absolute top-6 right-6 text-slate-400 hover:text-slate-700"
+            >
+              <X className="w-6 h-6" />
+            </button>
+
+            <div className="text-center mb-6">
+              <div className="bg-indigo-50 text-indigo-600 w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                <Building2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-2xl font-black text-slate-900">Welcome to NestFinder</h3>
+              <p className="text-sm text-slate-500 mt-1">Sign in with your mobile number to continue</p>
+            </div>
+
+            {!otpSent ? (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Select Your Role</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRole('tenant')}
+                      className={`py-3 rounded-xl font-bold text-xs border transition-all ${selectedRole === 'tenant' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-200' : 'bg-slate-50 text-slate-700 border-slate-200'}`}
+                    >
+                      Tenant
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRole('landlord')}
+                      className={`py-3 rounded-xl font-bold text-xs border transition-all ${selectedRole === 'landlord' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-200' : 'bg-slate-50 text-slate-700 border-slate-200'}`}
+                    >
+                      Landlord / Owner
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Mobile Number</label>
+                  <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+                    <span className="text-slate-400 font-bold text-sm mr-2">+91</span>
+                    <input
+                      type="tel"
+                      maxLength={10}
+                      placeholder="Enter 10-digit mobile number"
+                      value={mobileInput}
+                      onChange={(e) => setMobileInput(e.target.value)}
+                      className="w-full bg-transparent text-sm font-semibold focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleSendOtp}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-md shadow-indigo-200 transition-all text-sm"
+                >
+                  Send OTP
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl text-center">
+                  <p className="text-xs text-indigo-700 font-medium mb-1">Mock OTP Sent to +91 {mobileInput}</p>
+                  <p className="text-lg font-black text-indigo-900 tracking-widest">{mockOtpCode}</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Enter 6-Digit OTP</label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    placeholder="Enter OTP (or 123456)"
+                    value={otpInput}
+                    onChange={(e) => setOtpInput(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-center text-lg font-bold tracking-widest focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <button
+                  onClick={handleVerifyOtp}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow-md shadow-emerald-200 transition-all text-sm"
+                >
+                  Verify & Proceed
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* FOOTER */}
+      <footer className="bg-white border-t border-slate-200 py-8 mt-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500">
+          <p>© 2026 NestFinder. Zero Brokerage Direct Living Spaces in India.</p>
+          <div className="flex space-x-6 mt-4 sm:mt-0 font-medium">
+            <a href="#" className="hover:text-indigo-600">Privacy Policy</a>
+            <a href="#" className="hover:text-indigo-600">Terms of Service</a>
+            <a href="#" className="hover:text-indigo-600">Support</a>
+          </div>
+        </div>
+      </footer>
+
+    </div>
+  );
+}
